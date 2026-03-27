@@ -1,0 +1,685 @@
+import pygame
+import math
+import random
+
+debugToggle = True
+# 1366 x 768 --> 1356 x 707
+x_screen = 1056
+y_screen = 707
+FPS = 60
+backgroundRed = 15
+backgroundGreen = 15
+backgroundBlue = 30
+
+fly = False
+keys = None
+keypress = None
+pygame.init()
+screen = pygame.display.set_mode((x_screen, y_screen))
+clock = pygame.time.Clock()
+
+
+class Entity:
+    def __init__(self, x, y, width=100, height=100, angle=0):
+        self.pos = pygame.Vector2(x, y)
+        self.width = width
+        self.height = height
+        self.vel = pygame.Vector2(0, 0)
+        self.gravity = 1
+        self.grounded = False
+        self.angle = angle % 360
+        self.red = 0
+        self.green = 0
+        self.blue = 0
+        self.static = True
+        self.mass = self.width * self.height
+        self.prevPos = pygame.Vector2(self.pos.copy())
+
+    def move(self):
+        if self.vel.x != 0:
+            if self.vel.x >= -.5 and self.vel.x <= .5:
+                self.vel.x = 0
+            elif self.vel.x > 0:
+                self.vel.x -= .5
+            elif self.vel.x < 0:
+                self.vel.x += .5
+        if self.vel.y >= 20: self.vel.y = 20
+        self.pos += self.vel
+        self.vel.y += self.gravity
+
+    def updatePrevPos(self):
+        self.prevPos = pygame.Vector2(self.pos.x, self.pos.y)
+
+    def drawRect(self, screen):
+        surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        surf.fill((self.red, self.green, self.blue))
+        if debugToggle: pygame.draw.rect(screen, (self.red / 2 + backgroundRed, self.green / 2 + backgroundGreen,
+                                                  self.blue / 2 + backgroundBlue),
+                                         (self.prevPos.x - self.width / 2, self.prevPos.y - self.height / 2, self.width,
+                                          self.height), )
+
+        rotated = pygame.transform.rotate(surf, self.angle)
+        rect = rotated.get_rect(
+            center=(self.pos.x, self.pos.y)
+        )
+        screen.blit(rotated, rect)
+        if debugToggle: pygame.draw.circle(screen, (255, 0, 0), (self.pos.x, self.pos.y), 5)
+
+    def screenLoop(self):
+        if self.pos.y - self.height / 2 > y_screen:
+            self.pos.y = (0 - self.height / 2)
+            if self == player: generateLevel()
+        elif self.pos.x - self.width / 2 > x_screen:
+            self.pos.x = 0 - self.width / 2
+        elif self.pos.x + self.width / 2 < 0:
+            self.pos.x = x_screen + self.width / 2
+
+    def intersectingBox(self, other):
+        if \
+                ((other.pos.x - other.width / 2) < (self.pos.x + self.width / 2) and
+                (other.pos.x + other.width / 2) > (self.pos.x - self.width / 2) and
+                (other.pos.y + other.height / 2) > (self.pos.y - self.height / 2) and
+                (other.pos.y - other.height / 2) < (self.pos.y + self.height / 2)):
+            return True
+        else:
+            return False
+
+    def hitBox(self, other):
+        left, right, up, down = False, False, False, False
+        # Floor
+        if (
+                (self.pos.y + self.height / 2) >= (other.pos.y - other.height / 2) and
+                (self.pos.x + self.width / 2) > (other.pos.x - other.width / 2) and
+                (self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                (self.prevPos.y + self.height / 2) <= (other.pos.y - other.height / 2)):
+            self.pos.y = other.pos.y - other.height / 2 - self.height / 2
+            self.vel.y = 0
+            self.grounded = True
+            if self is player:
+                if self.dive != 0:
+                    if self.vel.x > 0 and keys[pygame.K_DOWN]:
+                        self.slideTimer = 15
+                        self.pos.y -= 5
+                    if self.vel.x < 0 and keys[pygame.K_DOWN]:
+                        self.slideTimer = -15
+                        self.pos.y -= 5
+            up = True
+        # Right Wall
+        elif \
+                ((self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                 (self.pos.y + self.height / 2) > (other.pos.y - other.height / 2) and
+                 (self.pos.y - self.height / 2) < (other.pos.y + other.height / 2) and
+                 (self.prevPos.x - self.width / 2) >= (other.pos.x + other.width / 2)):
+            self.pos.x = other.pos.x + other.width / 2 + self.width / 2
+            self.vel.x = 0
+            if self == player:
+                player.jumpSlide = False
+                if not self.grounded:
+                    if self.dive == 0:
+                        player.wallTimerLeft = 0
+                        player.kindaRightWalled = True
+                        if keys[pygame.K_LEFT]: player.rightWalled = True
+                        player.slideTimer = 0
+                    else:
+                        player.dive = 0
+                        player.vel.x = 15
+                        player.gravity = 1
+            right = True
+
+            # Left Wall
+        elif \
+                ((self.pos.x + self.width / 2) > (other.pos.x - other.width / 2) and
+                 (self.pos.y + self.height / 2) > (other.pos.y - other.height / 2) and
+                 (self.pos.y - self.height / 2) < (other.pos.y + other.height / 2) and
+                 (self.prevPos.x + self.width / 2) <= (other.pos.x - other.width / 2)):
+            self.pos.x = other.pos.x - other.width / 2 - self.width / 2
+            self.vel.x = 0
+            if self == player:
+                player.jumpSlide = False
+                if not self.grounded:
+                    if player.dive == 0:
+                        player.wallTimerRight = 0
+                        player.kindaLeftWalled = True
+                        if keys[pygame.K_RIGHT]: player.leftWalled = True
+                        player.slideTimer = 0
+                    else:
+                        player.dive = 0
+                        player.vel.x = -15
+                        player.gravity = 1
+
+            left = True
+            # Ceiling
+        elif (
+                (self.pos.y - self.height / 2) < (other.pos.y + other.height / 2) and
+                (self.pos.x + self.width / 2) > (other.pos.x - other.width / 2) and
+                (self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                (self.prevPos.y - self.height / 2) >= (other.pos.y + other.height / 2)):
+            self.pos.y = other.pos.y + other.height / 2 + self.height / 2
+            self.vel.y = 0
+            down = True
+        colliding = True
+        i = 0
+        collisionInfo = []
+        collidedObjects = [(self, None)]
+        while colliding:
+            for stuff in collidedObjects:
+                referenceObject, prevObject = stuff
+                colliding = False
+                for object in objects:
+                    doNext = False
+                    for box in collidedObjects:
+                        if object is box[0]: doNext = True
+                    if doNext: continue
+                    if prevObject == object: continue
+                    if referenceObject.intersectingBox(object):
+                        collisionInfo.append((referenceObject, object))
+                        colliding = True
+                for info in collisionInfo:
+                    objectSelf, object = info
+                    if up and object.pos.y+object.height/2 < objectSelf.pos.y-objectSelf.height/2+object.vel.y:
+                        object.pos.y = objectSelf.pos.y - objectSelf.height/2 - object.height/2
+                        object.vel.y = 0
+                    elif right and object.pos.x - object.width/2 > objectSelf.pos.x-objectSelf.width/2+object.vel.y:
+                        object.pos.x = objectSelf.pos.x + objectSelf.width/2 + object.width/2
+                        object.vel.x = 0
+                    elif left and object.pos.x + object.width/2 < objectSelf.pos.x+objectSelf.width/2+object.vel.y:
+                        object.pos.x = objectSelf.pos.x - objectSelf.width/2 - object.width/2
+                        object.vel.x = 0
+                    elif down and object.pos.y-object.height/2 > objectSelf.pos.y+objectSelf.height/2+object.vel.y:
+                        object.pos.y = objectSelf.pos.y + objectSelf.height/2 + object.height/2
+                        object.vel.y = 0
+                    collidedObjects.append((object, objectSelf))
+                collidedObjects.remove(stuff)
+                collisionInfo = []
+
+            i += 1
+            if i > 100:
+                print("broke")
+                break
+
+    def objectHitBox(self, other):
+        up, down, left, right = False, False, False, False
+        # Floor
+        if (
+                (self.pos.y + self.height / 2) >= (other.pos.y - other.height / 2) and
+                (self.pos.x + self.width / 2) > (other.pos.x - other.width / 2) and
+                (self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                (self.prevPos.y + self.height / 2) <= (other.pos.y - other.height / 2)):
+            distance = pygame.Vector2(0, (self.pos.y + self.height / 2) - (other.pos.y - other.height / 2))
+
+            self.pos -= distance * (self.mass / (self.mass + other.mass))
+            other.pos += distance * (other.mass / (self.mass + other.mass))
+
+            self.vel.y = (self.vel.y + other.vel.y) / 2
+            other.vel.y = (self.vel.y + other.vel.y) / 2
+            self.grounded = True
+            up = True
+        # Right Wall
+        elif \
+                ((self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                 (self.pos.y + self.height / 2) >= (other.pos.y - other.height / 2) and
+                 (self.pos.y - self.height / 2) <= (other.pos.y + other.height / 2) and
+                 (self.prevPos.x - self.width / 2) >= (other.pos.x + other.width / 2)):
+            distance = pygame.Vector2((self.pos.x - self.width / 2) - (other.pos.x + other.width / 2), 0)
+
+            self.pos -= distance * (self.mass / (self.mass + other.mass))
+            other.pos += distance * (other.mass / (self.mass + other.mass))
+            self.vel.x = (self.vel.x + other.vel.x) / 2
+            other.vel.x = (self.vel.x + other.vel.x) / 2
+            if self == player:
+                player.jumpSlide = False
+                if not self.grounded:
+                    if player.dive == 0:
+                        player.wallTimerLeft = 0
+                        player.kindaRightWalled = True
+                        if keys[pygame.K_LEFT]: player.rightWalled = True
+                    else:
+                        player.dive = 0
+                        player.vel.x = 15
+                        player.gravity = 1
+            right = True
+        # Left Wall
+        elif \
+                ((self.pos.x + self.width / 2) >= (other.pos.x - other.width / 2) and
+                 (self.pos.y + self.height / 2) >= (other.pos.y - other.height / 2) and
+                 (self.pos.y - self.height / 2) <= (other.pos.y + other.height / 2) and
+                 (self.prevPos.x + self.width / 2) <= (other.pos.x - other.width / 2)):
+            distance = pygame.Vector2((self.pos.x + self.width / 2) - (other.pos.x - other.width / 2), 0)
+            self.vel.x = (self.vel.x+other.vel.x)/2
+            other.vel.x = (self.vel.x+other.vel.x)/2
+            self.pos -= distance * (self.mass/(self.mass+other.mass))
+            other.pos += distance * (other.mass/(self.mass+other.mass))
+            if self == player:
+                player.jumpSlide = False
+                if not self.grounded:
+                    if player.dive == 0:
+                        player.wallTimerRight = 0
+                        player.kindaLeftWalled = True
+                        if keys[pygame.K_RIGHT]: player.leftWalled = True
+                    else:
+                        player.dive = 0
+                        player.vel.x = -15
+                        player.gravity = 1
+            left = True
+        # Cieling
+        elif (
+                (self.pos.y - self.height / 2) <= (other.pos.y + other.height / 2) and
+                (self.pos.x + self.width / 2) > (other.pos.x - other.width / 2) and
+                (self.pos.x - self.width / 2) < (other.pos.x + other.width / 2) and
+                (self.prevPos.y - self.height / 2) >= (other.pos.y + other.height / 2)):
+            distance = pygame.Vector2(0, (self.pos.y - self.height / 2) - (other.pos.y + other.height / 2))
+            self.pos -= distance * (self.mass / (self.mass + other.mass))
+            other.pos += distance * (other.mass / (self.mass + other.mass))
+            self.vel.y = (self.vel.y + other.vel.y) / 2
+            other.vel.y = (self.vel.y + other.vel.y) / 2
+            down = True
+        colliding = True
+        i = 0
+        collisionInfo = []
+        collidedObjects = [(self, None)]
+        while colliding:
+            for stuff in collidedObjects:
+                referenceObject, prevObject = stuff
+                colliding = False
+                for object in objects:
+                    doNext = False
+                    for box in collidedObjects:
+                        if object is box[0]: doNext = True
+                    if doNext: continue
+                    if prevObject == object: continue
+                    if referenceObject.intersectingBox(object):
+                        collisionInfo.append((referenceObject, object))
+                        colliding = True
+                for info in collisionInfo:
+                    objectSelf, object = info
+                    if up and object.pos.y + object.height / 2 < objectSelf.pos.y - objectSelf.height / 2 + object.vel.y:
+                        object.pos.y = objectSelf.pos.y - objectSelf.height / 2 - object.height / 2
+                        object.vel.y = 0
+                    elif right and object.pos.x - object.width / 2 > objectSelf.pos.x - objectSelf.width / 2 + object.vel.y:
+                        object.pos.x = objectSelf.pos.x + objectSelf.width / 2 + object.width / 2
+                        object.vel.x = 0
+                    elif left and object.pos.x + object.width / 2 < objectSelf.pos.x + objectSelf.width / 2 + object.vel.y:
+                        object.pos.x = objectSelf.pos.x - objectSelf.width / 2 - object.width / 2
+                        object.vel.x = 0
+                    elif down and object.pos.y - object.height / 2 > objectSelf.pos.y + objectSelf.height / 2 + object.vel.y:
+                        object.pos.y = objectSelf.pos.y + objectSelf.height / 2 + object.height / 2
+                        object.vel.y = 0
+                    collidedObjects.append((object, objectSelf))
+                collidedObjects.remove(stuff)
+                collisionInfo = []
+
+            i += 1
+            if i > 100:
+                print("broke")
+                break
+
+class Square(Entity):
+    def __init__(self, x, y, width, height, angle):
+        super().__init__(x, y, width, height, angle)
+        self.red = 0
+        self.green = 128
+        self.blue = 128
+
+
+class Player(Entity):
+    def __init__(self, x, y, width, height, angle):
+        super().__init__(x, y, width, height, angle)
+        self.red = 255
+        self.green = 255
+        self.blue = 255
+        self.friction = .9
+        self.jumpTimer = 0
+        self.rightWalled = False
+        self.leftWalled = False
+        self.kindaRightWalled = False
+        self.kindaLeftWalled = False
+        self.wallTimerRight = 0
+        self.wallTimerLeft = 0
+        self.coyote = 0
+        self.coyoteRight = 0
+        self.coyoteLeft = 0
+        self.coyoteTime = 5
+        self.jumpBuffer = 0
+        self.slideTimer = 0
+        self.dive = 0
+        self.jumpSlide = False
+
+    def detectInput(self, keys, upPress, downPress):
+        if upPress and not self.grounded: self.jumpBuffer = 5
+        if self.jumpBuffer > 0: self.jumpBuffer -= 1
+        if self.grounded:
+            self.dive = 0
+            self.gravity = 1
+            self.jumpSlide = False
+        if not fly:
+            # Y movement
+            if self.rightWalled or self.leftWalled:
+                if self.vel.y > 0:
+                    self.vel.y *= 0.75
+                if self.kindaRightWalled or self.rightWalled: self.coyoteRight = self.coyoteTime + 5
+                if self.kindaLeftWalled or self.leftWalled: self.coyoteLeft = self.coyoteTime + 5
+            if self.grounded:
+                self.coyote = self.coyoteTime
+            if keys[pygame.K_UP]:
+                # ground Jump
+                if self.grounded or self.coyote != 0:
+                    self.vel.y -= 10
+                    self.jumpTimer = 4
+                    if not self.grounded:
+                        self.vel.y += 10
+                        self.vel.y = -10
+                    self.coyote = 0
+                if self.jumpTimer > 0:
+                    self.vel.y -= self.jumpTimer * 0.2
+                    self.jumpTimer -= 1
+                self.gravity = .6
+                # wall jump
+            if (self.rightWalled or self.coyoteRight != 0) and not self.grounded and self.jumpBuffer > 0:
+                self.vel = pygame.Vector2(8, -7)
+                self.wallTimerRight = 7
+                self.coyoteRight = 0
+                self.wallTimerLeft = 0
+            if self.wallTimerRight != 0:
+                if self.wallTimerRight > 0:
+                    if keys[pygame.K_UP]: self.vel.y -= self.wallTimerRight * .2
+                    self.wallTimerRight -= 2
+                    if keys[pygame.K_LEFT]: self.vel.x += 1
+                    if self.wallTimerRight == -1: self.wallTimerRight = -11
+                elif -16 < self.wallTimerRight < 0:
+                    if keys[pygame.K_LEFT]: self.vel.x += 1
+                    if keys[pygame.K_RIGHT]: self.vel.x -= .5
+                    self.wallTimerRight += 1
+                    if self.wallTimerRight == -1: self.wallTimerRight = -25
+                elif self.wallTimerRight < -16:
+                    if keys[pygame.K_LEFT]: self.vel.x += .5
+                    self.wallTimerRight += 1
+                    if self.wallTimerRight == -16: self.wallTimerRight = 0
+
+            if (self.leftWalled or self.coyoteLeft != 0) and not self.grounded and self.jumpBuffer > 0:
+                self.vel = pygame.Vector2(-8, -7)
+                self.wallTimerLeft = 7
+                self.coyoteLeft = 0
+                self.wallTimerRight = 0
+            if self.wallTimerLeft != 0:
+                if self.wallTimerLeft > 0:
+                    if keys[pygame.K_UP]: self.vel.y -= self.wallTimerLeft * .2
+                    self.wallTimerLeft -= 2
+                    if keys[pygame.K_RIGHT]: self.vel.x -= 1
+                    if self.wallTimerLeft == -1: self.wallTimerLeft = -11
+                elif -16 < self.wallTimerLeft < 0:
+                    if keys[pygame.K_RIGHT]: self.vel.x -= 1
+                    if keys[pygame.K_LEFT]: self.vel.x += .5
+                    self.wallTimerLeft += 1
+                    if self.wallTimerLeft == -1: self.wallTimerLeft = -25
+                elif self.wallTimerLeft < -16:
+                    if keys[pygame.K_RIGHT]: self.vel.x -= .5
+                    self.wallTimerLeft += 1
+                    if self.wallTimerLeft == -16: self.wallTimerLeft = 0
+            if self.coyoteLeft > 0: self.coyoteLeft -= 1
+            if self.coyoteRight > 0: self.coyoteRight -= 1
+            if self.coyote > 0: self.coyote -= 1
+
+            if keys[pygame.K_DOWN] and not self.grounded: self.vel.y += 2
+
+            # X movement
+
+            if self.slideTimer == 0:
+                if keys[pygame.K_RIGHT]:
+                    self.vel.x += 1
+                    if self.vel.x >= 10: self.vel.x -= 5
+                    if downPress and self.grounded: self.slideTimer = 15
+
+                if keys[pygame.K_LEFT]:
+                    self.vel.x -= 1
+                    if self.vel.x <= -10: self.vel.x += 5
+                    if downPress and self.grounded: self.slideTimer = -15
+                if self.vel.x > 0 and self.grounded and not keys[pygame.K_RIGHT]: self.vel.x -= 1
+                if self.vel.x < 0 and self.grounded and not keys[pygame.K_LEFT]: self.vel.x += 1
+
+            elif self.slideTimer != 0:
+                if self.grounded:
+                    if upPress:
+                        if self.slideTimer > 0:
+                            self.slideTimer = 0
+                        else:
+                            self.slideTimer = 0
+                        self.jumpSlide = True
+                        self.vel.y = -10
+
+                    if self.slideTimer == 15 or self.slideTimer == -15:
+                        self.width = 30
+                        self.height = 20
+                        self.pos.y += 5
+                        if self.slideTimer > 0:
+                            self.pos.x -= 5
+                        else:
+                            self.pos.x += 5
+                    if self.slideTimer > 0:
+                        self.vel.x = 14
+                        self.slideTimer -= 1
+                    else:
+                        self.vel.x = -14
+                        self.slideTimer += 1
+                    if self.slideTimer == 1 or self.slideTimer == -1:
+                        self.vel.x = 0
+                        if self.slideTimer > 0:
+                            self.vel.x = 10
+                            self.pos.x -= 10
+                        else:
+                            self.vel.x = -10
+                            self.pos.x += 10
+                        self.slideTimer = 0
+                else:
+                    self.slideTimer = 0
+            if not self.grounded and downPress and self.dive == 0:
+                if keys[pygame.K_RIGHT]: self.dive = 10
+                if keys[pygame.K_LEFT]: self.dive = -10
+            if self.dive != 0:
+                if self.dive > 0:
+                    self.width = 30
+                    self.height = 20
+                    if self.dive == 10: self.pos.x -= 5
+                    if self.dive > 7: self.vel = pygame.Vector2(5, -.5)
+                    elif  self.dive > 1: self.vel = pygame.Vector2(10, .5)
+                    else:self.vel.x = 12
+                    if self.dive > 1: self.dive -= 1
+
+
+                else:
+                    self.width = 30
+                    self.height = 20
+                    if self.dive == -10: self.pos.x += 5
+                    if self.dive < -7:self.vel = pygame.Vector2(-5, -.5)
+                    elif self.dive < -1: self.vel = pygame.Vector2(-10, .5)
+                    else: self.vel.x = -12
+                    if self.dive < -1: self.dive += 1
+
+            if (self.width != 20 or self.height != 30) and self.slideTimer == 0 and self.dive == 0:
+                self.width = 20
+                self.height = 30
+                self.pos.y -= 5
+            if self.jumpSlide:
+                if keys[pygame.K_RIGHT]: self.vel.x = 14
+                elif keys[pygame.K_LEFT]: self.vel.x = -14
+                if keys[pygame.K_DOWN]: self.vel.y -= 2
+
+        # Debug
+        elif fly and debugToggle:
+            if keys[pygame.K_UP]:
+                self.vel.y = -5
+            elif self.vel.y < 0:
+                self.vel.y = 0
+            if keys[pygame.K_DOWN]:
+                self.vel.y = 5
+            elif self.vel.y > 0:
+                self.vel.y = 0
+            if keys[pygame.K_LEFT]:
+                self.vel.x = -5
+            elif self.vel.x < 0:
+                self.vel.x = 0
+            if keys[pygame.K_RIGHT]:
+                self.vel.x = 5
+            elif self.vel.x > 0:
+                self.vel.x = 0
+
+# Levels
+class level:
+    def __init__(self, x, y):
+        self.pos = pygame.Vector2(x, y)
+        self.spawnPos = pygame.Vector2(x, y)
+        self.statics = []
+        self.objects = []
+        self.sprites = []
+
+class Defualt(level):
+    def __init__(self, x, y):
+        super().__init__(x, y)
+        self.pos = pygame.Vector2(x, y)
+        self.width = random.randint(200, 300)
+        self.height = random.randint(200, 300)
+        self.red = 100
+        self.green = 25
+        self.blue = 25
+        self.statics = []
+        self.dynamics = []
+        if random.randint(1, 5) == 1:
+            self.statics.append((0, self.height/2-20, self.width-10, 40, 0))
+            bottom = True
+        if random.randint(1, 5) == 1:
+            self.statics.append((self.width/2-20, 0, 40, self.height, 0))
+            left = True
+        if random.randint(1, 5) == 1:
+            self.statics.append((20-self.width/2, 0, 40, self.height, 0))
+            right = True
+        if random.randint(1, 5) == 1:
+            self.statics.append((0, 20-self.height/2, self.width-10, 40, 0))
+            top = True
+
+
+
+
+levels = [Defualt]
+
+player = Player(700, 400, 20, 30, 0)
+
+objects = [player, Square(500, 425, 100, 100, 0)]
+statics = [Square(600, 500, 500, 50, 0)]
+sprites = []
+
+
+def generateLevel():
+    global objects, statics, player, sprites
+    statics = []
+    objects = [player]
+    sprites = []
+    currentLevels = []
+
+    currentLevels.append(levels[0](300, 300))
+
+    for level in currentLevels:
+        for box in level.statics:
+            x, y, w, h, a = box
+            square = Square(x + level.pos.x, y + level.pos.y, w, h, a)
+            statics.append(square)
+            square.red = level.red
+            square.green = level.green
+            square.blue = level.blue
+
+        for box in level.objects:
+            x, y, w, h, a = box
+            square = Square(x + level.pos.x, y + level.pos.y, w, h, a)
+            objects.append(square)
+
+        if debugToggle:
+            sprites.append((screen, (0), (level.pos.x-level.width/2, level.pos.y-level.height/2, level.width, level.height)))
+
+
+
+prevPress = []
+def keypress(press):
+    if event.type == pygame.KEYDOWN and event.key == press: return True
+
+
+
+upPress = False
+downPress = False
+
+# generateLevel()
+
+running = True
+while running:
+    for event in pygame.event.get():
+        keys = pygame.key.get_pressed()
+        if event.type == pygame.QUIT:
+            running = False
+        # debug
+        if keypress(pygame.K_UP): upPress = True
+        if keypress(pygame.K_DOWN): downPress = True
+
+        if debugToggle == True:
+            if keypress(pygame.K_q):
+                fly = not fly
+                if player.gravity == 0: player.gravity = 1
+            if keypress(pygame.K_w):
+                player.pos = pygame.Vector2(pygame.mouse.get_pos())
+                player.vel = pygame.Vector2(0, 0)
+                player.updatePrevPos()
+            if keypress(pygame.K_e): print(player.pos)
+            if keypress(pygame.K_EQUALS): FPS *= 1.2
+            if keypress(pygame.K_MINUS): FPS /= 1.2
+            if keys[pygame.K_MINUS] and keys[pygame.K_EQUALS]: FPS = 60
+            if keypress(pygame.K_r): generateLevel()
+            if keypress(pygame.K_b): objects.append(Square(pygame.mouse.get_pos()[0], pygame.mouse.get_pos()[1], 50, 50, 0))
+    player.detectInput(keys, upPress, downPress)
+
+    screen.fill((backgroundRed, backgroundGreen, backgroundBlue))
+
+    player.rightWalled = False
+    player.leftWalled = False
+    player.kindaRightWalled = False
+    player.kindaLeftWalled = False
+    upPress = False
+    downPress = False
+    for entity in statics:
+        entity.static = True
+    for entity in objects:
+        entity.static = False
+        entity.screenLoop()
+        entity.updatePrevPos()
+        entity.move()
+        entity.grounded = False
+
+
+    # Collision
+    # for i in range(5):
+    for entity in objects:
+        for object in objects:
+            if object == entity: continue
+            distance = math.sqrt((entity.pos.x - object.pos.x) ** 2 + (entity.pos.y - object.pos.y) ** 2)
+            objectRadius = math.sqrt(object.width ** 2 + object.height ** 2)
+            entityRadius = math.sqrt(entity.width ** 2 + entity.height ** 2)
+            if distance < (objectRadius + entityRadius) / 2:
+                object.objectHitBox(entity)
+
+        for static in statics:
+            distance = math.sqrt((entity.pos.x - static.pos.x) ** 2 + (entity.pos.y - static.pos.y) ** 2)
+            staticRadius = math.sqrt(static.width ** 2 + static.height ** 2)
+            entityRadius = math.sqrt(entity.width ** 2 + entity.height ** 2)
+            if distance < (staticRadius + entityRadius) / 2:
+                entity.hitBox(static)
+
+    # Draw
+    for sprite in sprites:
+        a, b, c = sprite
+        pygame.draw.rect(a, b, c)
+    for entity in objects:
+        entity.drawRect(screen)
+    for entity in statics:
+        entity.drawRect(screen)
+
+
+
+    pygame.display.flip()
+    clock.tick(FPS)
+
+pygame.quit()
