@@ -1,0 +1,93 @@
+import pygame
+ import math
+ 
+ pygame.init()
+ screen = pygame.display.set_mode((800, 600))
+ clock = pygame.time.Clock()
+ 
+ 
+ class Entity:
+ def __init__(self, x, y, width, height):
+ self.x = x
+ self.y = y
+ self.width = width
+ self.height = height
+ self.xspd = 0
+ self.yspd = 0
+ self.gravity = 1
+ self.grounded = False
+ 
+ 
+ 
+ def move(self):
+ self.yspd += self.gravity
+ self.x += self.xspd
+ self.y += self.yspd
+ 
+ def draw(self, screen):
+ pygame.draw.rect(screen, (255,255,255), (self.x, self.y, self.width, self.height))
+ 
+ def hitBox(self, x, y, width, height, angle):
+ angle = math.degrees(angle)
+ if (
+ self.y >= y + (self.x - x)*(float(math.tan(angle))) and
+ self.y-self.height <= y + height + (self.x - x)*(float(math.tan(angle))) and
+ self.x+self.width >= x and
+ self.x <= x+ width
+ ):
+ self.y = y + (self.x - x)*float(math.tan(angle))
+ self.grounded = True
+ if self.grounded == True: self.yspd = 0
+ #Draw hitbox
+ for i in range(width):
+ pygame.draw.rect(screen, (255, 0, 0), (x+i, y + math.tan(angle)*i, 1, height))
+ 
+ class Player(Entity):
+ def __init__(self, x, y):
+ super().__init__(x, y, 50, 50)
+ 
+ 
+ def detectInput(self, keys):
+ #Y movement
+ if keys[pygame.K_UP] and self.grounded == True: self.yspd = -15
+ if self.yspd >= 20: self.yspd = 20
+ #X movement
+ if keys[pygame.K_RIGHT]: self.xspd += 1
+ elif self.xspd > 0: self.xspd -= 1
+ if self.xspd >= 8: self.xspd = 8
+ if keys[pygame.K_LEFT]: self.xspd -= 1
+ elif self.xspd < 0: self.xspd += 1
+ if self.xspd <= -8: self.xspd = -8
+ 
+ 
+ player = Player(100, 200)
+ enemy = Entity(300, 200, 50, 50)
+ 
+ running = True
+ while running:
+ for event in pygame.event.get():
+ if event.type == pygame.QUIT:
+ running = False
+ screen.fill((0, 0, 0)) # clear screen (black)
+ 
+ keys = pygame.key.get_pressed()
+ 
+ 
+ 
+ 
+ player.hitBox(0, 550, 800, 50, 0)
+ 
+ 
+ player.move()
+ player.detectInput(keys)
+ player.draw(screen)
+ 
+ 
+ 
+ 
+ player.grounded = False
+ 
+ pygame.display.flip()
+ clock.tick(60)
+ 
+ pygame.quit()
