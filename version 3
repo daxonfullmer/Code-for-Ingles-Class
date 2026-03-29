@@ -1,0 +1,311 @@
+import pygame
+import math
+from collections import Counter
+
+debugToggle = True
+debug = False
+pygame.init()
+xscreen = 1366
+yscreen = 768
+screen = pygame.display.set_mode((xscreen, yscreen))
+clock = pygame.time.Clock()
+FPS = 60
+
+class Entity:
+    def __init__(self, x, y, width=100, height=100, angle=0):
+        self.pos = pygame.Vector2(x, y)
+        self.width = width
+        self.height = height
+        self.vel = pygame.Vector2(0, 0)
+        self.gravity = 1
+        self.grounded = False
+        self.wasGrounded = False
+        self.angle = angle % 360
+        self.red = 0
+        self.green = 0
+        self.blue = 0
+        self.static = True
+        self.mass = self.width*self.height
+        self.friction = .9
+        self.movedPos = self.pos
+        self.points = [
+            ((self.pos.x + math.sqrt(2) * self.width / 2 * math.cos(math.radians(self.angle + 45))),
+             (self.pos.y - math.sqrt(2) * self.height / 2 * math.sin(math.radians(self.angle + 45)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 * math.cos(math.radians(self.angle + 315))),
+             (self.pos.y - math.sqrt(2) * self.height / 2 * math.sin(math.radians(self.angle + 315)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 * math.cos(math.radians(self.angle + 225))),
+             (self.pos.y - math.sqrt(2) * self.height / 2 * math.sin(math.radians(self.angle + 225)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 * math.cos(math.radians(self.angle + 135))),
+             (self.pos.y - math.sqrt(2) * self.height / 2 * math.sin(math.radians(self.angle + 135))))
+        ]
+        self.refPoint = self.points[0]
+        self.prevPoints = self.points
+        self.prevRefPoint = self.prevPoints[0]
+        self.lines = [
+            Geometry(self.points[0], self.points[3]),
+            Geometry(self.points[3], self.points[2]),
+            Geometry(self.points[2], self.points[1]),
+            Geometry(self.points[1], self.points[0])
+        ]
+
+    def updateBoxPoints(self):
+        self.points = [
+            ((self.pos.x + math.sqrt(2) * self.width / 2 * math.cos(math.radians(self.angle + 45))),
+             (self.pos.y - math.sqrt(2) * self.height/ 2 *math.sin(math.radians(self.angle + 45)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 *math.cos(math.radians(self.angle + 315))),
+             (self.pos.y - math.sqrt(2) * self.height/ 2*math.sin(math.radians(self.angle + 315)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 *math.cos(math.radians(self.angle + 225))),
+             (self.pos.y - math.sqrt(2) * self.height/ 2*math.sin(math.radians(self.angle + 225)))),
+            ((self.pos.x + math.sqrt(2) * self.width / 2 *math.cos(math.radians(self.angle + 135))),
+             (self.pos.y - math.sqrt(2) * self.height/ 2*math.sin(math.radians(self.angle + 135))))
+        ]
+    def updatePrevBoxPoints(self):
+        self.prevPoints = self.points
+
+    def move(self):
+        if self.vel.x != 0:
+            if self.vel.x >= -.5 and self.vel.x <= .5: self.vel.x = 0
+            elif self.vel.x > 0: self.vel.x -= .5
+            elif self.vel.x < 0: self.vel.x += .5
+        if self.vel.y >= 20: self.vel.y = 20
+        self.pos += self.vel
+        self.vel.y += self.gravity
+
+    def drawRect(self, screen):
+        surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        surf.fill((self.red, self.green, self.blue))
+
+        rotated = pygame.transform.rotate(surf, self.angle)
+        rect = rotated.get_rect(
+            center=(self.pos.x, self.pos.y)
+        )
+        screen.blit(rotated, rect)
+        pygame.draw.circle(screen, (255, 0, 0), (self.pos.x, self.pos.y), 5)
+
+    def screenLoop(self):
+        if self.pos.y - self.height/2 > yscreen: self.pos.y = 0 - self.height/2
+        elif self.pos.x - self.width/2 > xscreen: self.pos.x = 0 - self.width/2
+        elif self.pos.x + self.width/2 < 0: self.pos.x = xscreen + self.width/2
+
+
+    def box(self, other):
+        self.prevLines = self.lines
+        self.lines = [
+            Geometry(self.points[0], self.points[3]),
+            Geometry(self.points[3], self.points[2]),
+            Geometry(self.points[2], self.points[1]),
+            Geometry(self.points[1], self.points[0])
+        ]
+
+        # lineNum = 0
+        pointInfo = []
+        for geometry in self.lines:
+            for i in range(len(other.points)):
+                other.refPoint = pygame.Vector2(other.points[i])
+                other.prevRefPoint = pygame.Vector2(other.prevPoints[i])
+                # if self.static and not other.static: info = geometry.staticLine(other)
+                # elif other.static and not self.static: info = geometry.dynamicLine(other, self.vel, pygame.Vector2(self.prevPoints[3-lineNum]))
+                # else: info = geometry.dynamicLine(other, self.vel, pygame.Vector2(self.prevPoints[3-lineNum]))
+                info = geometry.staticLine(other)
+                pointVector = (other.refPoint - other.pos).normalize()
+
+                if info != False:
+                    if pointVector.dot(info[0]) <=.707: pointInfo.append(info)
+
+        if len(pointInfo) == 0: pointInfo = None
+        elif len(pointInfo) == 1: pointInfo = pointInfo[0]
+        else:
+            normals = []
+            for i in range(len(pointInfo)):
+                normals.append((pointInfo[i][0][0], pointInfo[i][0][1]))
+            normals = Counter(normals)
+            sortedTuples = sorted(normals.items(), key=lambda x: x[1], reverse=True)
+            for i in range(len(pointInfo)):
+                if (float(pointInfo[i][0][0]), float(pointInfo[i][0][1])) == sortedTuples[0][0]:
+                    pointInfo = pointInfo[i]
+                    break
+        if pointInfo != None:
+            normal, penetration = pointInfo
+            if self.static and not other.static:
+                other.pos -= normal * penetration
+                other.vel -= other.vel.dot(normal) * normal
+                if normal.y <= -.5: other.grounded = True
+
+            elif not self.static and not other.static:
+                self.pos += normal * penetration /2
+                self.vel += self.vel.dot(normal) * normal/2
+                if normal.y <= -.5: self.grounded = True
+                other.pos -= normal * penetration/2
+                other.vel -= other.vel.dot(normal) * normal/2
+
+
+
+class Geometry:
+    def __init__(self, p1, p2):
+        self.p1 = pygame.Vector2(p1)
+        self.p2 = pygame.Vector2(p2)
+        self.edge = self.p2 - self.p1
+        self.dx = self.p2.x - self.p1.x
+        self.dy = self.p2.y - self.p1.y
+        if pygame.Vector2(-self.dy,self.dx) != (0,0):
+            self.normal = pygame.Vector2(-self.dy, self.dx).normalize()
+        else: self.normal = (0,0)
+
+    def staticLine(self, other):
+        pygame.draw.circle(screen, (255, 0, 0), (self.p1.x, self.p1.y), 5)
+        prevPen = (other.prevRefPoint - self.p1).dot(self.normal)
+        penetration = (other.refPoint - self.p1).dot(self.normal)
+        approaching = other.vel.dot(self.normal) < 0
+        edge_len_sq = self.edge.length_squared()
+        if edge_len_sq == 0: t = 0.0
+        else: t = (other.refPoint - self.p1).dot(self.edge) / edge_len_sq
+        if t > 0 and t < 1 and approaching and penetration <= 0 and prevPen >= -.01: return self.normal, penetration
+        else: return False
+
+    def dynamicLine(self, other, vel, prevPoint):
+        pygame.draw.circle(screen, (255, 0, 0), (self.p1.x, self.p1.y), 5)
+        prevPen = (other.refPoint - pygame.Vector2(prevPoint)).dot(self.normal)
+        penetration = (other.refPoint - self.p1).dot(self.normal)
+        approaching = vel.dot(self.normal) > 0
+        edge_len_sq = self.edge.length_squared()
+        if edge_len_sq == 0: t = 0.0
+        else: t = (other.refPoint - self.p1).dot(self.edge) / edge_len_sq
+        if t > 0 and t < 1 and approaching and penetration <= 0 and prevPen >= -0.01: return self.normal, penetration
+        else: return False
+
+class Square(Entity):
+    def __init__(self, x, y, width, height, angle):
+        super().__init__(x, y, width, height, angle)
+        self.red = 100
+        self.green = 64
+        self.blue = 128
+
+class Player(Entity):
+    def __init__(self, x, y, width, height, angle):
+        super().__init__(x, y, width, height, angle)
+        self.red = 255
+        self.green = 255
+        self.blue = 255
+        self.friction = .9
+        self.jumpTimer = 0
+        self.coyote = 0
+
+
+    def detectInput(self, keys, keypress):
+        if not debug or not debugToggle:
+
+            #Y movement
+            if keys[pygame.K_UP]:
+                if self.grounded:
+                    self.vel.y -= 10
+                    self.jumpTimer = 4
+                if self.jumpTimer > 0:
+                    self.vel.y -= self.jumpTimer * 0.3
+                    self.jumpTimer -= 1
+                self.gravity = .6
+
+
+            #X movement
+            if keys[pygame.K_RIGHT]:
+                self.vel.x += 1
+                if self.vel.x >= 10: self.vel.x -= 4
+            if keys[pygame.K_LEFT]:
+                self.vel.x -= 1
+                if self.vel.x <= -10: self.vel.x += 4
+        elif debug and debugToggle:
+            if keys[pygame.K_UP]: self.vel.y = -5
+            elif self.vel.y < 0: self.vel.y= 0
+            if keys[pygame.K_DOWN]: self.vel.y = 5
+            elif self.vel.y > 0: self.vel.y = 0
+            if keys[pygame.K_LEFT]: self.vel.x = -5
+            elif self.vel.x < 0: self.vel.x = 0
+            if keys[pygame.K_RIGHT]: self.vel.x = 5
+            elif self.vel.x > 0: self.vel.x = 0
+
+player = Player(1000, 100, 30, 40, 0)
+box1 = Square(1000, 600, 100, 100, 0)
+box2 = Square(900, 300, 400, 100, 0)
+box3 = Square(400, 700, 800, 100, 0)
+box4 = Square(100, 500, 100, 300, 0)
+box5 = Square(300, 575, 100, 100, 0)
+box6 = Square(500, 500, 100, 100, 0)
+box7 = Square(250, 400, 100, 100, 0)
+box8 = Square(500, 300, 100, 100, 0)
+box9 = Square(800, 100, 100, 100, 0)
+objects = [player, box9]
+statics = [box1, box2, box3, box4, box5, box6, box7, box8]
+
+running = True
+while running:
+    for event in pygame.event.get():
+        keys = pygame.key.get_pressed()
+        keypress = event.type == pygame.KEYDOWN and event.key
+        if event.type == pygame.QUIT:
+            running = False
+        #debug
+        if debugToggle == True:
+            if keypress == pygame.K_q:
+                debug = not debug
+                if player.gravity == 0: player.gravity = 1
+            if keypress == pygame.K_w:
+                player.pos = pygame.Vector2(pygame.mouse.get_pos())
+                player.vel = pygame.Vector2(0, 0)
+                player.updateBoxPoints()
+                player.updatePrevBoxPoints()
+            if keypress == pygame.K_e: print(player.pos)
+            if keypress == pygame.K_EQUALS: FPS *= 1.2
+            if keypress == pygame.K_MINUS: FPS /= 1.2
+            if keys[pygame.K_MINUS] and keys[pygame.K_EQUALS]: FPS = 60
+
+    screen.fill((0, 0, 0))  # clear screen (black)
+
+    player.detectInput(keys, keypress)
+
+    for entity in objects:
+        entity.static = False
+        entity.screenLoop()
+        entity.updatePrevBoxPoints()
+        entity.move()
+        entity.movedPos = entity.pos
+        entity.updateBoxPoints()
+        if entity.grounded == True:
+            entity.wasGrounded = True
+            entity.grounded = False
+        entity.gravity = 1
+    for entity in statics:
+        entity.static = True
+
+#Collision
+    for entity in objects:
+        for object in objects:
+            if object == entity: continue
+            distance = math.sqrt((entity.pos.x-object.pos.x)**2 + (entity.pos.y-object.pos.y)**2)
+            objectRadius = math.sqrt(object.width**2 + object.height**2)
+            entityRadius = math.sqrt(entity.width**2 + entity.height**2)
+            if distance < (objectRadius + entityRadius)/2 + 5:
+                object.box(entity)
+
+        for static in statics:
+            distance = math.sqrt((entity.pos.x-static.pos.x)**2 + (entity.pos.y-static.pos.y)**2)
+            staticRadius = math.sqrt(static.width**2 + static.height**2)
+            entityRadius = math.sqrt(entity.width**2 + entity.height**2)
+            if distance < (staticRadius + entityRadius)/2:
+                static.box(entity)
+
+
+
+
+    #Draw
+    for entity in objects:
+        entity.updateBoxPoints()
+        entity.drawRect(screen)
+    for entity in statics:
+        entity.drawRect(screen)
+
+
+
+
+    pygame.display.flip()
+    clock.tick(FPS)
+
+pygame.quit()
